@@ -1,0 +1,140 @@
+/* Query used for QS 1.1 */SELECT
+  f.title AS film_title,
+  c.name AS category_name,
+  COUNT(r.rental_id) AS rental_count
+FROM category c
+JOIN film_category fc
+  ON c.category_id = fc.category_id
+  AND c.name IN ('Animation', 'Children', 'Classics', 'Comedy', 'Family', 'Music')
+
+JOIN film f
+  ON f.film_id = fc.film_id
+JOIN inventory i
+  ON f.film_id = i.film_id
+JOIN rental AS r
+  ON i.inventory_id = r.inventory_id
+GROUP BY 1,
+         2
+ORDER BY 1;
+/* Query used for QS 1.2 */SELECT
+  f.title AS film_title,
+  c.name AS category_name,
+  f.rental_duration,
+  NTILE(4) OVER (ORDER BY f.rental_duration) AS standard_quartile
+
+FROM category c
+JOIN film_category fc
+  ON c.category_id = fc.category_id
+  AND c.name IN ('Animation', 'Children', 'Classics', 'Comedy', 'Family', 'Music')
+
+JOIN film f
+  ON f.film_id = fc.film_id;/* Query used for QS 1.3 */SELECT
+  t1.name,
+  t1.standard_quartile,
+  COUNT(t1.standard_quartile)
+FROM (SELECT
+  f.title,
+  c.name,
+  f.rental_duration,
+  NTILE(4) OVER (ORDER BY f.rental_duration) AS standard_quartile
+FROM film_category fc
+JOIN category c
+  ON c.category_id = fc.category_id
+JOIN film f
+  ON f.film_id = fc.film_id
+WHERE c.name IN ('Animation', 'Children', 'Classics', 'Comedy', 'Family', 'Music')) t1
+GROUP BY 1,
+         2
+ORDER BY 1, 2;/* Query used for QS 2.1 */SELECT
+  DATE_PART('month', r.rental_date) AS Rental_month,
+  DATE_PART('year', r.rental_date) AS Rental_year,
+  CONCAT(s.store_id) AS Store_id,
+  COUNT(*) AS count_rentals
+FROM store AS s
+JOIN staff AS st
+  ON s.store_id = st.store_id
+
+JOIN rental r
+  ON st.staff_id = r.staff_id
+GROUP BY 1,
+         2,
+         3
+
+ORDER BY 1, 2;/* Query used for QS 2.2 */SELECT DATE_TRUNC ('month', p.payment_date) pay_month, CONCAT(first_name,' ',last_name) AS full_name, COUNT(p.amount) AS pay_countpermon, SUM(p.amount) AS pay_amount
+FROM customer c
+  JOIN payment p
+	ON p.customer_id = c.customer_id
+WHERE CONCAT (c.first_name,' ',c.last_name) IN
+	(SELECT t1.full_name
+	FROM
+	(SELECT CONCAT(c.first_name,' ',c.last_name) AS full_name, SUM(p.amount) as amount_total
+FROM customer c
+	JOIN payment p
+	ON p.customer_id = c.customer_id
+	GROUP BY 1	
+	ORDER BY 2 DESC
+	LIMIT 10) t1) 
+AND 
+(p.payment_date BETWEEN '2007-01-01' AND '2008-01-01')
+GROUP BY 2, 1
+ORDER BY 2, 1, 3;/* Query used for QS 2.3 */WITH t1 AS (SELECT (first_name || ' ' || last_name) AS name,                    c.customer_id,                    p.amount,                    p.payment_date              FROM customer AS c                   JOIN payment AS p                    ON c.customer_id = p.customer_id),     t2 AS (SELECT t1.customer_id              FROM t1             GROUP BY 1             ORDER BY SUM(t1.amount) DESC             LIMIT 10),t3 AS (SELECT t1.name,              DATE_PART('month', t1.payment_date) AS payment_month,               DATE_PART('year', t1.payment_date) AS payment_year,              COUNT (*),              SUM(t1.amount),              SUM(t1.amount) AS total,              LEAD(SUM(t1.amount)) OVER(PARTITION BY t1.name ORDER BY DATE_PART('month', t1.payment_date)) AS lead,              LEAD(SUM(t1.amount)) OVER(PARTITION BY t1.name ORDER BY DATE_PART('month', t1.payment_date)) - SUM(t1.amount) AS lead_dif         FROM t1              JOIN t2               ON t1.customer_id = t2.customer_id        WHERE t1.payment_date BETWEEN '20070101' AND '20080101'        GROUP BY 1, 2, 3        ORDER BY 1, 3, 2)SELECT t3.*,       CASE           WHEN t3.lead_dif = (SELECT MAX(t3.lead_dif) FROM t3 ORDER BY 1 DESC LIMIT 1) THEN 'this is the maximum difference'           ELSE NULL           END AS is_max					  FROM t3 ORDER BY 1;/* Query used for Presentation 1 */SELECT
+  c.name AS category_name,
+  COUNT(r.rental_id) AS rental_count
+FROM category c
+JOIN film_category fc
+  ON c.category_id = fc.category_id
+  AND c.name IN ('Animation', 'Children', 'Classics', 'Comedy', 'Family', 'Music', 'Action',
+  'Documentary', 'Drama', 'Foreign', 'Games', 'Horror', 'New', 'Sci-Fi', 'Sports', 'Travel')
+
+JOIN film f
+  ON f.film_id = fc.film_id
+JOIN inventory i
+  ON f.film_id = i.film_id
+JOIN rental AS r
+  ON i.inventory_id = r.inventory_id
+GROUP BY 1
+ORDER BY 1;/* Query used for Presentation 2 */WITH t1 AS 
+      (SELECT c.customer_id, SUM(p.amount)
+         FROM customer c
+              JOIN payment p
+              ON p.customer_id = c.customer_id
+     GROUP BY 1
+     ORDER BY 2 DESC
+        LIMIT 10),
+     t2 AS
+      (SELECT DATE_TRUNC('month', p.payment_date) AS pay_mon, c.first_name || ' ' || c.last_name AS fullname,
+              COUNT(*) pay_counterpermon,
+              SUM(p.amount) pay_amount
+         FROM payment p
+              JOIN customer c
+              ON p.customer_id = c.customer_id AND c.customer_id IN
+                  (SELECT customer_id 
+                     FROM t1)
+     GROUP BY 1, 2
+       HAVING DATE_TRUNC('month', p.payment_date) BETWEEN '01-01-2007' AND '01-01-2008'),   
+     t3 AS
+      (SELECT pay_mon,
+              fullname,
+              pay_amount,
+              LAG(pay_amount) OVER (ORDER BY fullname, pay_mon) prior_mon_pay_amount,
+              CASE WHEN fullname = LAG(fullname) OVER (ORDER BY fullname, pay_mon) THEN pay_amount - LAG(pay_amount) OVER (ORDER BY fullname, pay_mon)
+              ELSE NULL
+              END AS delta_pay_amount
+         FROM t2)
+SELECT pay_mon,
+       fullname,
+       delta_pay_amount
+ FROM t3
+WHERE NOT delta_pay_amount IS NULL
+ORDER BY delta_pay_amount DESC;/* Query used for Presentation 3 */SELECT
+  f.title AS Movie,
+  COUNT(r.rental_date) AS Times_Rented
+FROM film AS f
+JOIN inventory AS i
+  ON i.film_id = f.film_id
+JOIN rental AS r
+  ON r.inventory_id = i.inventory_id
+WHERE f.title LIKE '%k'
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 10;          /* Query used for Presentation 4 */ SELECT DATE_PART('month', p.payment_date) pay_month, CONCAT(c.first_name,' ',c.last_name) AS full_name, COUNT(p.amount) AS pay_countpermon, SUM(p.amount) AS pay_amountFROM customer c     JOIN payment p     ON p.customer_id = c.customer_idWHERE CONCAT(c.first_name,' ',c.last_name) IN(SELECT t1.full_name     FROM          (SELECT CONCAT(c.first_name,' ',c.last_name) AS full_name, SUM(p.amount) as amount_total          FROM customer c               JOIN payment p               ON p.customer_id = c.customer_id          GROUP BY 1          ORDER BY 2 DESC	  LIMIT 10) t1) AND (p.payment_date BETWEEN '2007-01-01' AND '2008-01-01')GROUP BY 2, 1ORDER BY 2, 1, 3 ;     
